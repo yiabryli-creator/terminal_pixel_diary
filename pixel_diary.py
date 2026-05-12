@@ -1,216 +1,203 @@
-import json
-from datetime import datetime
-from abc import ABC, abstractmethod
 import os
-from typing import List, Dict
+import io
+import json
+import requests
+
+from PIL import Image
+from dotenv import load_dotenv
+from datetime import datetime
 
 
-# ====================== МОДЕЛЬ ЗАПИСИ ======================
+# ===================== НАСТРОЙКА =====================
+load_dotenv()
+
+TOKEN = os.getenv("PINTEREST_ACCESS_TOKEN")
+
+BASE_URL = "https://api.pinterest.com/v5"
+
+
+# ===================== ЗАПИСЬ =====================
 class Entry:
-    def __init__(self, content: str, mood: str = "нейтрально"):
-        self._date = datetime.now()
-        self._content = content.strip()
-        self._mood = mood
+    def __init__(self, text, mood):
+        self.text = text
+        self.mood = mood
+        self.date = datetime.now().strftime("%d.%m.%Y %H:%M")
 
-    @property
-    def date(self):
-        return self._date
+    def show(self):
+        print("\n" + "=" * 50)
+        print(self.date)
+        print("Настроение:", self.mood)
+        print("-" * 50)
+        print(self.text)
+        print("=" * 50)
 
-    @property
-    def content(self):
-        return self._content
 
-    @property
-    def mood(self):
-        return self._mood
+# ===================== PINTEREST =====================
+class PinterestArt:
+    chars = " .:-=+*#%@"
 
-    def to_dict(self) -> Dict:
-        return {
-            "date": self._date.isoformat(),
-            "content": self._content,
-            "mood": self._mood
+    def __init__(self):
+        self.headers = {
+            "Authorization": f"Bearer {TOKEN}"
         }
 
-    @classmethod
-    def from_dict(cls, data: Dict):
-        entry = cls(
-            data["content"],
-            data.get("mood", "нейтрально")
+    def search(self, query):
+        url = f"{BASE_URL}/pins/search"
+
+        params = {
+            "query": query,
+            "page_size": 1
+        }
+
+        response = requests.get(
+            url,
+            headers=self.headers,
+            params=params
         )
-        entry._date = datetime.fromisoformat(data["date"])
-        return entry
 
-    def display(self) -> str:
-        return (f"Дата: {self._date.strftime('%d.%m.%Y %H:%M')}\n"
-                f"Настроение: {self._mood}\n"
-                f"{'-' * 55}\n{self._content}\n")
+        data = response.json()
 
+        return data["items"][0]
 
-# ====================== ХРАНИЛИЩЕ ======================
-class Storage(ABC):
-    @abstractmethod
-    def save(self, entries: List[Entry]):
-        pass
+    def image_to_ascii(self, image_url):
+        response = requests.get(image_url)
 
-    @abstractmethod
-    def load(self) -> List[Entry]:
-        pass
+        image = Image.open(
+            io.BytesIO(response.content)
+        )
 
+        image = image.convert("L")
 
-class JSONStorage(Storage):
-    def __init__(self, filename: str = "pixel_diary.json"):
-        self.filename = filename
+        image = image.resize((60, 30))
 
-    def save(self, entries: List[Entry]):
-        data = [entry.to_dict() for entry in entries]
-        with open(self.filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        pixels = image.getdata()
 
-    def load(self) -> List[Entry]:
-        if not os.path.exists(self.filename):
-            return []
+        ascii_text = ""
+
+        for i, pixel in enumerate(pixels):
+            ascii_text += self.chars[pixel // 25]
+
+            if i % 60 == 0:
+                ascii_text += "\n"
+
+        return ascii_text
+
+    def show(self, query):
         try:
-            with open(self.filename, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return [Entry.from_dict(item) for item in data]
+            pin = self.search(query)
+
+            image_url = (
+                pin["media"]["images"]["1200x"]["url"]
+            )
+
+            ascii_art = self.image_to_ascii(image_url)
+
+            print("\n")
+            print("▓" * 60)
+            print("Pinterest Mood:", query)
+            print("▓" * 60)
+            print(ascii_art)
+            print("▓" * 60)
+
         except Exception:
-            return []
+            print("Ошибка Pinterest API")
 
 
-# ====================== ПИКСЕЛЬНЫЙ РЕНДЕРЕР ======================
-class Renderer(ABC):
-    @abstractmethod
-    def render_header(self, title: str):
-        pass
-
-    @abstractmethod
-    def render_menu(self, options: List[str]):
-        pass
-
-    @abstractmethod
-    def render_entries(self, entries: List[Entry]):
-        pass
-
-
-class PixelRenderer(Renderer):
-    def __init__(self):
-        self.width = 62
-
-    def print_box_top(self):
-        print("╔" + "═" * (self.width - 2) + "╗")
-
-    def print_box_bottom(self):
-        print("╚" + "═" * (self.width - 2) + "╝")
-
-    def print_box_line(self, text: str = ""):
-        line = f"║ {text.ljust(self.width - 4)} ║"
-        print(line)
-
-    def render_header(self, title: str):
-        print("\n" + "█" * self.width)
-        self.print_box_top()
-        centered = title.center(self.width - 4)
-        self.print_box_line(centered)
-        self.print_box_bottom()
-        print("█" * self.width + "\n")
-
-    def render_menu(self, options: List[str]):
-        self.print_box_top()
-        self.print_box_line("ГЛАВНОЕ МЕНЮ")
-        self.print_box_bottom()
-        for i, option in enumerate(options, 1):
-            print(f"  {i}. {option}")
-        print()
-
-    def render_entries(self, entries: List[Entry]):
-        if not entries:
-            self.print_box_top()
-            self.print_box_line("Дневник пока пуст...")
-            self.print_box_bottom()
-            return
-
-        self.print_box_top()
-        self.print_box_line(f"Записей в дневнике: {len(entries)}")
-        self.print_box_bottom()
-
-        for idx, entry in enumerate(entries[-5:], 1):
-            print(f"\n{idx}. " + entry.display())
-
-
-# ====================== ОСНОВНОЙ КЛАСС ДНЕВНИКА ======================
+# ===================== ДНЕВНИК =====================
 class Diary:
-    def __init__(self, storage: Storage, renderer: Renderer):
-        self._entries: List[Entry] = []
-        self.storage = storage
-        self.renderer = renderer
-        self._load_entries()
+    def __init__(self):
+        self.entries = []
+        self.pinterest = PinterestArt()
 
-    def _load_entries(self):
-        self._entries = self.storage.load()
+        self.load()
 
     def add_entry(self):
-        self.renderer.render_header("НОВАЯ ЗАПИСЬ")
-        content = input("Введите текст записи:\n> ")
-        if not content.strip():
-            print("Запись не может быть пустой!")
+        text = input("Текст:\n> ")
+
+        mood = input("Настроение:\n> ")
+
+        entry = Entry(text, mood)
+
+        self.entries.append(entry)
+
+        self.save()
+
+        print("Запись сохранена")
+
+    def show_entries(self):
+        if not self.entries:
+            print("Записей нет")
             return
 
-        mood = input("Ваше настроение (или Enter для нейтрально): ") or "нейтрально"
+        for entry in self.entries:
+            entry.show()
 
-        entry = Entry(content, mood)
-        self._entries.append(entry)
-        self.storage.save(self._entries)
-        print("Запись успешно добавлена!")
+    def pinterest_mood(self):
+        query = input("Введите aesthetic:\n> ")
 
-    def view_entries(self):
-        self.renderer.render_header("МОЙ ПИКСЕЛЬНЫЙ ДНЕВНИК")
-        self.renderer.render_entries(self._entries)
+        self.pinterest.show(query)
 
-    def search_entries(self):
-        self.renderer.render_header("ПОИСК ПО ДНЕВНИКУ")
-        query = input("Что ищем? ").strip().lower()
-        if not query:
+    def save(self):
+        data = []
+
+        for entry in self.entries:
+            data.append({
+                "text": entry.text,
+                "mood": entry.mood,
+                "date": entry.date
+            })
+
+        with open("diary.json", "w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+
+    def load(self):
+        if not os.path.exists("diary.json"):
             return
-        results = [e for e in self._entries if query in e.content.lower()]
-        self.renderer.render_header(f"Найдено по запросу: {query}")
-        self.renderer.render_entries(results)
+
+        with open("diary.json", "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        for item in data:
+            entry = Entry(
+                item["text"],
+                item["mood"]
+            )
+
+            entry.date = item["date"]
+
+            self.entries.append(entry)
+
+    def menu(self):
+        while True:
+            print("\n")
+            print("█" * 50)
+            print("ПИКСЕЛЬНЫЙ ДНЕВНИК")
+            print("█" * 50)
+
+            print("1. Добавить запись")
+            print("2. Показать записи")
+            print("3. Pinterest Mood")
+            print("4. Выход")
+
+            choice = input("\nВыбор: ")
+
+            if choice == "1":
+                self.add_entry()
+
+            elif choice == "2":
+                self.show_entries()
+
+            elif choice == "3":
+                self.pinterest_mood()
+
+            elif choice == "4":
+                break
+
+            else:
+                print("Ошибка")
 
 
-# ====================== ЗАПУСК ======================
-def main():
-    print("Запуск Пиксельного Дневника...\n")
+# ===================== ЗАПУСК =====================
+diary = Diary()
 
-    storage = JSONStorage()
-    renderer = PixelRenderer()
-    diary = Diary(storage, renderer)
-
-    menu_options = [
-        "Добавить новую запись",
-        "Просмотреть записи",
-        "Поиск по записям",
-        "Выход"
-    ]
-
-    while True:
-        renderer.render_header("ПИКСЕЛЬНЫЙ ДНЕВНИК")
-        renderer.render_menu(menu_options)
-
-        choice = input("Выберите действие (1-4): ").strip()
-
-        if choice == "1":
-            diary.add_entry()
-        elif choice == "2":
-            diary.view_entries()
-        elif choice == "3":
-            diary.search_entries()
-        elif choice == "4":
-            print("До свидания! Все записи сохранены.")
-            break
-        else:
-            print("Неверный выбор!")
-
-        input("\nНажмите Enter для продолжения...")
-
-
-if __name__ == "__main__":
-    main()
+diary.menu()
