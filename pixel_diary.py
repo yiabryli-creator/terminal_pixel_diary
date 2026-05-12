@@ -8,15 +8,13 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 
-# ===================== НАСТРОЙКА =====================
+# ===================== ENV =====================
 load_dotenv()
 
-TOKEN = os.getenv("PINTEREST_ACCESS_TOKEN")
-
-BASE_URL = "https://api.pinterest.com/v5"
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
 
-# ===================== ЗАПИСЬ =====================
+# ===================== ENTRY =====================
 class Entry:
     def __init__(self, text, mood):
         self.text = text
@@ -32,21 +30,21 @@ class Entry:
         print("=" * 50)
 
 
-# ===================== PINTEREST =====================
-class PinterestArt:
+# ===================== PEXELS =====================
+class PexelsArt:
     chars = " .:-=+*#%@"
 
     def __init__(self):
         self.headers = {
-            "Authorization": f"Bearer {TOKEN}"
+            "Authorization": PEXELS_API_KEY
         }
 
-    def search(self, query):
-        url = f"{BASE_URL}/pins/search"
+    def search_image(self, query):
+        url = "https://api.pexels.com/v1/search"
 
         params = {
             "query": query,
-            "page_size": 1
+            "per_page": 1
         }
 
         response = requests.get(
@@ -57,14 +55,17 @@ class PinterestArt:
 
         data = response.json()
 
-        return data["items"][0]
+        photos = data.get("photos")
+
+        if not photos:
+            raise Exception("Картинки не найдены")
+
+        return photos[0]["src"]["medium"]
 
     def image_to_ascii(self, image_url):
         response = requests.get(image_url)
 
-        image = Image.open(
-            io.BytesIO(response.content)
-        )
+        image = Image.open(io.BytesIO(response.content))
 
         image = image.convert("L")
 
@@ -84,30 +85,28 @@ class PinterestArt:
 
     def show(self, query):
         try:
-            pin = self.search(query)
-
-            image_url = (
-                pin["media"]["images"]["1200x"]["url"]
-            )
+            image_url = self.search_image(query)
 
             ascii_art = self.image_to_ascii(image_url)
 
             print("\n")
             print("▓" * 60)
-            print("Pinterest Mood:", query)
+            print("PEXELS AESTHETIC:", query)
             print("▓" * 60)
             print(ascii_art)
             print("▓" * 60)
 
-        except Exception:
-            print("Ошибка Pinterest API")
+        except Exception as e:
+            print("\nОшибка Pexels API:")
+            print(e)
 
 
-# ===================== ДНЕВНИК =====================
+# ===================== DIARY =====================
 class Diary:
     def __init__(self):
         self.entries = []
-        self.pinterest = PinterestArt()
+
+        self.art = PexelsArt()
 
         self.load()
 
@@ -132,10 +131,10 @@ class Diary:
         for entry in self.entries:
             entry.show()
 
-    def pinterest_mood(self):
+    def aesthetic(self):
         query = input("Введите aesthetic:\n> ")
 
-        self.pinterest.show(query)
+        self.art.show(query)
 
     def save(self):
         data = []
@@ -171,12 +170,12 @@ class Diary:
         while True:
             print("\n")
             print("█" * 50)
-            print("ПИКСЕЛЬНЫЙ ДНЕВНИК")
+            print("PIXEL DIARY")
             print("█" * 50)
 
             print("1. Добавить запись")
             print("2. Показать записи")
-            print("3. Pinterest Mood")
+            print("3. Pexels aesthetic")
             print("4. Выход")
 
             choice = input("\nВыбор: ")
@@ -188,7 +187,7 @@ class Diary:
                 self.show_entries()
 
             elif choice == "3":
-                self.pinterest_mood()
+                self.aesthetic()
 
             elif choice == "4":
                 break
@@ -197,7 +196,6 @@ class Diary:
                 print("Ошибка")
 
 
-# ===================== ЗАПУСК =====================
+# ===================== START =====================
 diary = Diary()
-
 diary.menu()
