@@ -1,19 +1,16 @@
 import json
 from datetime import datetime
 from abc import ABC, abstractmethod
-import requests
 import os
-from typing import List, Optional, Dict
+from typing import List, Dict
 
 
 # ====================== МОДЕЛЬ ЗАПИСИ ======================
 class Entry:
-    def __init__(self, content: str, mood: str = "нейтрально", city: str = None, weather: str = None):
+    def __init__(self, content: str, mood: str = "нейтрально"):
         self._date = datetime.now()
         self._content = content.strip()
         self._mood = mood
-        self._city = city
-        self._weather = weather
 
     @property
     def date(self):
@@ -27,34 +24,25 @@ class Entry:
     def mood(self):
         return self._mood
 
-    @property
-    def weather(self):
-        return self._weather
-
     def to_dict(self) -> Dict:
         return {
             "date": self._date.isoformat(),
             "content": self._content,
-            "mood": self._mood,
-            "city": self._city,
-            "weather": self._weather
+            "mood": self._mood
         }
 
     @classmethod
     def from_dict(cls, data: Dict):
         entry = cls(
             data["content"],
-            data.get("mood", "нейтрально"),
-            data.get("city"),
-            data.get("weather")
+            data.get("mood", "нейтрально")
         )
         entry._date = datetime.fromisoformat(data["date"])
         return entry
 
     def display(self) -> str:
-        weather_info = f" | {self._city}: {self._weather}" if self._weather else ""
         return (f"Дата: {self._date.strftime('%d.%m.%Y %H:%M')}\n"
-                f"Настроение: {self._mood}{weather_info}\n"
+                f"Настроение: {self._mood}\n"
                 f"{'-' * 55}\n{self._content}\n")
 
 
@@ -87,33 +75,6 @@ class JSONStorage(Storage):
             return [Entry.from_dict(item) for item in data]
         except Exception:
             return []
-
-
-# ====================== API ПОГОДЫ ======================
-class WeatherAPIClient:
-    def __init__(self, api_key: str):
-        self._api_key = api_key
-        self.base_url = "https://api.openweathermap.org/data/2.5/weather"
-
-    def get_weather(self, city: str) -> Optional[str]:
-        if not self._api_key or not city or city.lower() in ["", "нет", "skip", "пропустить"]:
-            return None
-        try:
-            params = {
-                "q": city,
-                "appid": self._api_key,
-                "units": "metric",
-                "lang": "ru"
-            }
-            response = requests.get(self.base_url, params=params, timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                desc = data['weather'][0]['description']
-                temp = data['main']['temp']
-                return f"{desc.capitalize()}, {temp:.1f}°C"
-            return None
-        except Exception:
-            return None
 
 
 # ====================== ПИКСЕЛЬНЫЙ РЕНДЕРЕР ======================
@@ -178,11 +139,10 @@ class PixelRenderer(Renderer):
 
 # ====================== ОСНОВНОЙ КЛАСС ДНЕВНИКА ======================
 class Diary:
-    def __init__(self, storage: Storage, renderer: Renderer, weather_client: Optional[WeatherAPIClient] = None):
+    def __init__(self, storage: Storage, renderer: Renderer):
         self._entries: List[Entry] = []
         self.storage = storage
         self.renderer = renderer
-        self.weather_client = weather_client
         self._load_entries()
 
     def _load_entries(self):
@@ -196,14 +156,8 @@ class Diary:
             return
 
         mood = input("Ваше настроение (или Enter для нейтрально): ") or "нейтрально"
-        city = input("Город для погоды (или Enter чтобы пропустить): ").strip()
 
-        weather = None
-        if city and self.weather_client:
-            print("Получаем данные о погоде...")
-            weather = self.weather_client.get_weather(city)
-
-        entry = Entry(content, mood, city if city else None, weather)
+        entry = Entry(content, mood)
         self._entries.append(entry)
         self.storage.save(self._entries)
         print("Запись успешно добавлена!")
@@ -226,12 +180,9 @@ class Diary:
 def main():
     print("Запуск Пиксельного Дневника...\n")
 
-    api_key = input("Введите ваш OpenWeatherMap API-ключ (или Enter, чтобы работать без погоды):\n> ").strip()
-    weather_client = WeatherAPIClient(api_key) if api_key else None
-
     storage = JSONStorage()
     renderer = PixelRenderer()
-    diary = Diary(storage, renderer, weather_client)
+    diary = Diary(storage, renderer)
 
     menu_options = [
         "Добавить новую запись",
